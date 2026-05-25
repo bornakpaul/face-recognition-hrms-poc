@@ -148,8 +148,14 @@ async def recognize(file:UploadFile):
 
     employee_id,distance = result
 
+    confidence = max(0,round((1-distance)*100,2))
+
+    recognised = distance < 0.25
+
     return {
         "success":True,
         "employee_id":employee_id,
-        "distance":distance
+        "distance":distance,
+        "confidence":confidence,
+        "recognised":recognised
     }
