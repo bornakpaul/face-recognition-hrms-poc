@@ -4,12 +4,20 @@ from insightface.app import FaceAnalysis
 import cv2
 import numpy as np
 import psycopg2
+import mediapipe as mp
       
 app = FastAPI()
 
 face_model = FaceAnalysis(name="buffalo_l")
 
 face_model.prepare(ctx_id=0,)
+mp_face_mesh = mp.solutions.face_mesh
+
+face_mesh = mp_face_mesh.FaceMesh(
+    static_image_mode=False,
+    max_num_faces=1,
+    refine_landmarks=True,
+)
 
 conn = psycopg2.connect(
     host="localhost",
@@ -158,4 +166,45 @@ async def recognize(file:UploadFile):
         "distance":distance,
         "confidence":confidence,
         "recognised":recognised
+    }
+
+
+def detect_head_turn(image):
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    results = face_mesh.process(image_rgb)
+
+    if not results.multi_face_landmarks:
+        return False
+    
+    landmarks = (results.multi_face_landmarks[0].landmark)
+
+    nose = landmarks[1]
+    left_cheek = landmarks[234]
+    right_cheek = landmarks[454]
+
+    left_distance = abs(nose.x - left_cheek.x)
+    right_distance = abs(nose.x - right_cheek.x)
+
+    difference = abs(left_distance - right_distance)
+
+    return difference > 0.05
+
+
+@app.post("/liveness")
+async def liveness(file:UploadFile):
+    image_bytes = await file.read()
+    image_np = np.frombuffer(image_bytes, np.uint8)
+    image = cv2.imdecode(image_np,cv2.IMREAD_COLOR)
+
+    if image is None:
+        return {
+            "success":False,
+            "message":"Invalid image uploaded"
+        }
+
+    head_turn = detect_head_turn(image)
+
+    return {
+        "success":True,
+        "head_turn_detected":head_turn
     }
