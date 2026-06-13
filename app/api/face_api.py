@@ -1,4 +1,6 @@
-from fastapi import APIRouter, UploadFile
+import zipfile
+from fastapi import APIRouter, UploadFile, File
+from typing import List
 
 from app.utils.image_utils import decode_image
 
@@ -113,88 +115,107 @@ async def embedding(
 
 @router.post("/register-face")
 async def register_face(
-        file: UploadFile,
-        employee_id: int
+        files: List[UploadFile] = File(...),
+        employee_id: int = File(...)
 ):
 
-    image_bytes = await file.read()
+    registered_faces = 0
 
-    image = decode_image(
-        image_bytes
-    )
+    failed_files = []
 
-    if image is None:
+    for file in files:
 
-        return {
-            "success": False,
-            "message":
-            "Invalid image uploaded"
-        }
+        try:
 
-    faces = detect_faces(
-        image
-    )
+            image_bytes = await file.read()
 
-    if len(faces) == 0:
+            image = decode_image(
+                image_bytes
+            )
 
-        return {
-            "success": False,
-            "message":
-            "No face detected"
-        }
+            if image is None:
 
-    if len(faces) > 1:
+                failed_files.append({
+                    "file": file.filename,
+                    "reason": "Invalid image uploaded"
+                })
 
-        return {
-            "success": False,
-            "message":
-            "Multiple faces detected"
-        }
+                continue
 
-    cursor.execute(
-        """
-        SELECT COUNT(*)
-        FROM employee_face
-        WHERE employee_id=%s
-        """,
-        (employee_id,)
-    )
 
-    count = cursor.fetchone()[0]
+            faces = detect_faces(
+                image
+            )
 
-    if count > 0:
+            if len(faces) == 0:
 
-        return {
-            "success": False,
-            "message":
-            "Face already registered"
-        }
+                failed_files.append({
+                    "file": file.filename,
+                    "reason": "No face detected"
+                })
 
-    embedding = generate_embedding(
-        image
-    )
+                continue
 
-    cursor.execute(
-        """
-        INSERT INTO employee_face(
-            employee_id,
-            embedding
-        )
-        VALUES(%s,%s)
-        """,
-        (
-            employee_id,
-            embedding
-        )
-    )
+
+            if len(faces) > 1:
+
+                failed_files.append({
+                    "file": file.filename,
+                    "reason": "Multiple faces detected"
+                })
+
+                continue
+
+
+            embedding = generate_embedding(
+                image
+            )
+
+            cursor.execute(
+                """
+                INSERT INTO employee_face(
+                    employee_id,
+                    embedding,
+                    created_at
+                )
+                VALUES(
+                    %s,
+                    %s,
+                    NOW()
+                )
+                """,
+                (
+                    employee_id,
+                    embedding
+                )
+            )
+
+            registered_faces += 1
+
+        except Exception as ex:
+
+            failed_files.append({
+                "file": file.filename,
+                "reason": str(ex)
+            })
 
     conn.commit()
 
     return {
 
-        "success": True,
-        "message":
-            "Face registered successfully"
+        "success": registered_faces > 0,
+
+        "employee_id": employee_id,
+
+        "total_files": len(files),
+
+        "registered_faces": registered_faces,
+
+        "failed_faces":
+            len(failed_files),
+
+        "failed_files":
+            failed_files
     }
 
 
