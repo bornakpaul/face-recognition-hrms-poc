@@ -10,12 +10,13 @@ This service is designed to support employee attendance systems where employees 
 
 * Face Detection
 * Face Embedding Generation
-* Employee Face Registration
+* Multiple Face Registration per Employee
 * Face Recognition
 * Basic Liveness Detection (Head Turn Detection)
 * PostgreSQL Vector Storage
 * pgvector Similarity Search
 * Swagger API Documentation
+* Dockerized PostgreSQL Setup
 
 ---
 
@@ -36,47 +37,33 @@ This service is designed to support employee attendance systems where employees 
 
 # Project Structure
 
+```
 app/
 
 ├── api/
-
-│ └── face_api.py
-
-│
+│   └── face_api.py
 
 ├── db/
-
-│ └── database.py
-
-│
+│   └── database.py
 
 ├── models/
-
-│ └── face_model.py
-
-│
+│   └── face_model.py
 
 ├── services/
-
-│ ├── face_service.py
-
-│ └── liveness_service.py
-
-│
+│   ├── face_service.py
+│   └── liveness_service.py
 
 ├── utils/
-
-│ └── image_utils.py
-
-│
+│   └── image_utils.py
 
 └── main.py
+```
 
 ---
 
 # Setup Instructions
 
-## 1. Create Virtual Environment
+## Create Virtual Environment
 
 ```bash
 python3.11 -m venv venv
@@ -84,25 +71,23 @@ python3.11 -m venv venv
 source venv/bin/activate
 ```
 
-## 2. Install Dependencies
+## Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+If requirements.txt is unavailable:
 
 ```bash
 pip install fastapi
-
 pip install uvicorn
-
 pip install insightface
-
 pip install onnxruntime
-
 pip install opencv-python
-
 pip install numpy
-
 pip install psycopg2-binary
-
-pip install mediapipe
-
+pip install mediapipe==0.10.14
 pip install python-multipart
 ```
 
@@ -110,9 +95,7 @@ pip install python-multipart
 
 # PostgreSQL Setup
 
-## Start PostgreSQL + pgvector using Docker
-
-docker-compose.yml
+## Docker Compose
 
 ```yaml
 services:
@@ -126,9 +109,7 @@ services:
     environment:
 
       POSTGRES_DB: hrms
-
       POSTGRES_USER: admin
-
       POSTGRES_PASSWORD: admin
 
     ports:
@@ -140,11 +121,10 @@ services:
       - pgdata:/var/lib/postgresql/data
 
 volumes:
-
   pgdata:
 ```
 
-Start Docker:
+Start PostgreSQL:
 
 ```bash
 docker compose up -d
@@ -160,18 +140,6 @@ docker ps
 
 # Database Setup
 
-Connect to PostgreSQL:
-
-```bash
-psql -h localhost -p 5434 -U admin -d hrms
-```
-
-Password:
-
-```text
-admin
-```
-
 Enable pgvector:
 
 ```sql
@@ -185,9 +153,9 @@ CREATE TABLE employee_face (
 
     id BIGSERIAL PRIMARY KEY,
 
-    employee_id BIGINT,
+    employee_id BIGINT NOT NULL,
 
-    embedding VECTOR(512),
+    embedding VECTOR(512) NOT NULL,
 
     created_at TIMESTAMP DEFAULT NOW()
 
@@ -196,9 +164,7 @@ CREATE TABLE employee_face (
 
 ---
 
-# Running the Application
-
-From project root:
+# Running The Application
 
 ```bash
 uvicorn app.main:app --reload --port 8001
@@ -216,7 +182,7 @@ http://localhost:8001/docs
 
 ## Health Check
 
-GET
+### GET
 
 ```text
 /health
@@ -232,9 +198,9 @@ Response:
 
 ---
 
-## Face Detection
+## Detect Face
 
-POST
+### POST
 
 ```text
 /detect-face
@@ -242,26 +208,23 @@ POST
 
 Input:
 
-multipart/form-data
-
 ```text
-file: image
+file=image
 ```
 
 Response:
 
 ```json
 {
-  "success": true,
   "face_count": 1
 }
 ```
 
 ---
 
-## Generate Face Embedding
+## Generate Embedding
 
-POST
+### POST
 
 ```text
 /embedding
@@ -270,7 +233,7 @@ POST
 Input:
 
 ```text
-file: image
+file=image
 ```
 
 Response:
@@ -285,20 +248,27 @@ Response:
 
 ---
 
-## Register Employee Face
+## Register Employee Faces
 
-POST
+Registers multiple face images for a single employee.
+
+### POST
 
 ```text
 /register-face
 ```
 
-Input:
+Input (multipart/form-data):
 
 ```text
-employee_id=11
+employee_id = 17
 
-file=image
+files = front.jpg
+files = left.jpg
+files = right.jpg
+files = smile.jpg
+files = up.jpg
+files = down.jpg
 ```
 
 Response:
@@ -306,7 +276,29 @@ Response:
 ```json
 {
   "success": true,
-  "message": "Face registered successfully"
+  "employee_id": 17,
+  "total_files": 6,
+  "registered_faces": 6,
+  "failed_faces": 0,
+  "failed_files": []
+}
+```
+
+Example Partial Success:
+
+```json
+{
+  "success": true,
+  "employee_id": 17,
+  "total_files": 6,
+  "registered_faces": 4,
+  "failed_faces": 2,
+  "failed_files": [
+    {
+      "file": "group.jpg",
+      "reason": "Multiple faces detected"
+    }
+  ]
 }
 ```
 
@@ -314,7 +306,7 @@ Response:
 
 ## Face Recognition
 
-POST
+### POST
 
 ```text
 /recognize
@@ -331,7 +323,7 @@ Response:
 ```json
 {
   "success": true,
-  "employee_id": 11,
+  "employee_id": 17,
   "distance": 0.08,
   "confidence": 92.0,
   "recognised": true,
@@ -341,19 +333,19 @@ Response:
 
 Field Description:
 
-| Field       | Description            |
-| ----------- | ---------------------- |
-| employee_id | Matched employee       |
-| distance    | Vector distance        |
-| confidence  | Match confidence       |
-| recognised  | Face match result      |
-| live        | Head movement detected |
+| Field       | Description                |
+| ----------- | -------------------------- |
+| employee_id | Matched employee           |
+| distance    | Vector similarity distance |
+| confidence  | Recognition confidence     |
+| recognised  | Face match result          |
+| live        | Head-turn liveness result  |
 
 ---
 
 ## Liveness Detection
 
-POST
+### POST
 
 ```text
 /liveness
@@ -376,65 +368,69 @@ Response:
 
 ---
 
-# Recognition Logic
+# Recognition Flow
 
 Employee Registration:
 
-Image
-
-↓
-
+```
+Multiple Images
+        ↓
+Face Detection
+        ↓
 Embedding Generation
+        ↓
+Store Multiple Embeddings
+        ↓
+PostgreSQL + pgvector
+```
 
-↓
+Employee Recognition:
 
-Store in PostgreSQL
-
-↓
-
-employee_face
-
-Recognition:
-
+```
 Image
-
-↓
-
+  ↓
 Embedding Generation
-
-↓
-
-Vector Search (pgvector)
-
-↓
-
-Nearest Employee
-
-↓
-
+  ↓
+Vector Similarity Search
+  ↓
+Nearest Embedding Match
+  ↓
+Employee Identified
+  ↓
 Confidence Calculation
-
-↓
-
-Recognition Result
+  ↓
+Liveness Validation
+```
 
 ---
 
 # Current Limitations
 
-This is a Proof of Concept (POC).
+This project is currently a Proof of Concept (POC).
 
-Current liveness detection uses MediaPipe head-turn detection and can be bypassed using replay attacks.
+Current liveness detection is based on head-turn detection using MediaPipe FaceMesh.
 
-Examples:
+Possible spoofing methods:
 
+* Printed photograph
 * Mobile screen replay
-* Laptop replay
+* Laptop screen replay
 * Video replay attack
+
+For production environments, consider integrating:
+
+* Silent Face Anti Spoof
+* MiniFASNet
+* Passive Liveness Detection
+* Blink Detection
+* Depth Detection
 
 ---
 
 # Authors
 
 Bornak Paul
+
+Senior Software Engineer / System Analyst - I
+
 HRMS Face Recognition POC
